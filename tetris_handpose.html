@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Tetris with TensorFlow.js (One Move Per Zone)</title>
+  <title>Tetris + Handpose: Two Zone Modes</title>
   <style>
     body {
       display: flex;
@@ -11,81 +11,128 @@
       font-family: sans-serif;
       margin: 20px;
     }
+    /* Tetris section */
     #game-container {
-      margin-right: 20px;
+      margin-right: 20px; 
     }
-    canvas {
-      background: #000;
+    #tetris {
+      background: #000; /* black for Tetris background */
       border: 1px solid #333;
       display: block;
-    }
-    #video {
-      transform: scaleX(-1); /* Mirror the camera for a more natural feel */
-    }
-    .info {
-      max-width: 400px;
     }
     .controls {
       margin-top: 10px;
     }
+    /* Camera + overlay */
+    #video-container {
+      position: relative;
+      width: 320px;
+      height: 240px;
+    }
+    #video {
+      position: absolute;
+      top: 0; left: 0;
+      width: 320px; height: 240px;
+      transform: scaleX(-1);  /* Mirror camera for user */
+      background: #ccc;       /* gray if camera not loaded */
+    }
+    #overlayCanvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 320px; height: 240px;
+      pointer-events: none;
+      background: transparent;
+      z-index: 1; /* draw above video */
+    }
+    .info {
+      max-width: 400px;
+      margin-top: 10px;
+    }
+    ul { margin-top: 0; }
   </style>
 </head>
 <body>
 
+<!-- TETRIS SECTION -->
 <div id="game-container">
-  <h2>Tetris (One Move Per Hand Zone)</h2>
+  <h2>Tetris</h2>
   <canvas id="tetris" width="240" height="480"></canvas>
 
   <div class="controls">
-    <label for="speedRange">Game Speed (ms/drop):</label>
+    <label for="speedRange">Tetris Drop Speed (ms/drop):</label>
     <input
       type="range"
       id="speedRange"
-      min="100"   <!-- 100ms is very fast -->
-      max="2000"  <!-- 2000ms is quite slow -->
+      min="100"
+      max="2000"
       value="1000"
       step="100"
     />
     <span id="speedDisplay">1000 ms</span>
   </div>
+
+  <div class="controls">
+    <label for="modeSelect">Zone Mode:</label>
+    <select id="modeSelect">
+      <option value="one">One-Move-Per-Zone</option>
+      <option value="continuous">Continuous</option>
+    </select>
+  </div>
+
+  <div class="controls" id="repeatSpeedContainer" style="display: none;">
+    <label for="repeatSpeed">Zone Repeat Speed (ms):</label>
+    <input
+      type="range"
+      id="repeatSpeed"
+      min="50"
+      max="2000"
+      value="300"
+      step="50"
+    />
+    <span id="repeatSpeedDisplay">300 ms</span>
+  </div>
 </div>
 
+<!-- CAMERA SECTION -->
 <div>
-  <h2>Camera View</h2>
-  <video id="video" width="320" height="240" autoplay playsinline></video>
+  <h2>Camera View (Mirrored)</h2>
+  <div id="video-container">
+    <video id="video" autoplay playsinline></video>
+    <canvas id="overlayCanvas"></canvas>
+  </div>
+
   <div class="info">
-    <p><strong>Zones (one move per entry):</strong></p>
+    <p><strong>Zones:</strong></p>
     <ul>
-      <li><strong>Left side</strong> → Move Tetris block left</li>
-      <li><strong>Right side</strong> → Move Tetris block right</li>
+      <li><strong>Left</strong> → Move Tetris block left</li>
+      <li><strong>Right</strong> → Move Tetris block right</li>
       <li><strong>Top</strong> → Rotate block</li>
-      <li><strong>Bottom</strong> → Drop block</li>
+      <li><strong>Bottom</strong> → Drop block (no repetition in continuous mode)</li>
       <li><strong>Center</strong> → No action</li>
     </ul>
     <p>
-      This demo uses <a href="https://github.com/tensorflow/tfjs-models/tree/master/handpose" target="_blank">Handpose</a> to
-      detect the hand’s position. Each time your hand enters a new zone, exactly one move is triggered.
+      <strong>One-Move-Per-Zone:</strong> Must return to center before re-triggering the same zone.<br>
+      <strong>Continuous:</strong> Repeats moves if you stay in left/right/top zones (but not bottom).
     </p>
   </div>
 </div>
 
-<!-- TensorFlow.js -->
+<!-- TensorFlow + Handpose -->
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
-<!-- Handpose model -->
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose@0.0.7/dist/handpose.js"></script>
 
 <script>
 /**************************************************************
- * 1. Tetris Game Logic
+ * 1. TETRIS GAME LOGIC
  **************************************************************/
 const canvas = document.getElementById('tetris');
 const ctx = canvas.getContext('2d');
 
 const COLS = 10;
 const ROWS = 20;
-const BLOCK_SIZE = 24; // each block is 24px
+const BLOCK_SIZE = 24;
 
-// Create a 2D board array, filled with 0 (empty)
+// Board array
 let board = [];
 for (let r = 0; r < ROWS; r++) {
   board[r] = [];
@@ -94,60 +141,42 @@ for (let r = 0; r < ROWS; r++) {
   }
 }
 
-// Define Tetris shapes (tetrominoes)
+// Tetris shapes
 const SHAPES = {
   I: [[1,1,1,1]],
-  O: [[2,2],
-      [2,2]],
-  T: [[0,3,0],
-      [3,3,3]],
-  S: [[0,4,4],
-      [4,4,0]],
-  Z: [[5,5,0],
-      [0,5,5]],
-  J: [[6,0,0],
-      [6,6,6]],
-  L: [[0,0,7],
-      [7,7,7]],
+  O: [[2,2],[2,2]],
+  T: [[0,3,0],[3,3,3]],
+  S: [[0,4,4],[4,4,0]],
+  Z: [[5,5,0],[0,5,5]],
+  J: [[6,0,0],[6,6,6]],
+  L: [[0,0,7],[7,7,7]],
 };
 
-// All shape keys for random selection
 const SHAPE_KEYS = Object.keys(SHAPES);
 
-// Current piece + position
 let currentPiece = null;
 let currentX = 0;
 let currentY = 0;
 
-// Spawn a random piece
 function spawnNewPiece() {
   const shapeKey = SHAPE_KEYS[Math.floor(Math.random() * SHAPE_KEYS.length)];
-  // Make a deep copy of the shape array
   currentPiece = SHAPES[shapeKey].map(row => row.slice());
   currentX = Math.floor(COLS / 2) - Math.floor(currentPiece[0].length / 2);
   currentY = 0;
-  
-  // If collision right away -> Game Over (simple reset)
-  if (collision()) {
-    resetBoard();
-  }
+  if (collision()) resetBoard();
 }
 
-// Check collision with board or boundaries
 function collision(offsetX = 0, offsetY = 0, piece = currentPiece) {
   const futureX = currentX + offsetX;
   const futureY = currentY + offsetY;
-  
   for (let r = 0; r < piece.length; r++) {
     for (let c = 0; c < piece[r].length; c++) {
       if (piece[r][c]) {
         const newX = futureX + c;
         const newY = futureY + r;
-        // Check walls or bottom
         if (newX < 0 || newX >= COLS || newY >= ROWS) {
           return true;
         }
-        // Check if space is occupied
         if (newY >= 0 && board[newY][newX] !== 0) {
           return true;
         }
@@ -157,7 +186,6 @@ function collision(offsetX = 0, offsetY = 0, piece = currentPiece) {
   return false;
 }
 
-// Merge current piece into board
 function mergePiece() {
   for (let r = 0; r < currentPiece.length; r++) {
     for (let c = 0; c < currentPiece[r].length; c++) {
@@ -168,28 +196,25 @@ function mergePiece() {
   }
 }
 
-// Clear full lines
 function clearLines() {
   for (let r = ROWS - 1; r >= 0; r--) {
-    let isFull = true;
+    let full = true;
     for (let c = 0; c < COLS; c++) {
       if (board[r][c] === 0) {
-        isFull = false;
+        full = false;
         break;
       }
     }
-    if (isFull) {
+    if (full) {
       board.splice(r, 1);
       board.unshift(new Array(COLS).fill(0));
-      r++; // re-check same row index
+      r++;
     }
   }
 }
 
-// Rotate piece (90 deg clockwise)
 function rotatePiece() {
   if (!currentPiece) return;
-  // Transpose + reverse each row
   const rotated = [];
   for (let c = 0; c < currentPiece[0].length; c++) {
     const row = [];
@@ -198,13 +223,11 @@ function rotatePiece() {
     }
     rotated.push(row);
   }
-  // Only apply if no collision
   if (!collision(0, 0, rotated)) {
     currentPiece = rotated;
   }
 }
 
-// Reset the board (simple "restart")
 function resetBoard() {
   for (let r = 0; r < ROWS; r++) {
     board[r].fill(0);
@@ -212,7 +235,6 @@ function resetBoard() {
   spawnNewPiece();
 }
 
-// Helper to draw a single square block
 function drawBlock(x, y, val) {
   ctx.fillStyle = getColor(val);
   ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
@@ -220,7 +242,6 @@ function drawBlock(x, y, val) {
   ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
 }
 
-// Just pick a color based on shape ID (1-7)
 function getColor(val) {
   const colors = [
     '#000', // 0
@@ -235,10 +256,8 @@ function getColor(val) {
   return colors[val] || '#fff';
 }
 
-// Draw board + current piece
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
   // Draw board
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -247,12 +266,11 @@ function draw() {
       }
     }
   }
-  
   // Draw current piece
   if (currentPiece) {
     for (let r = 0; r < currentPiece.length; r++) {
       for (let c = 0; c < currentPiece[r].length; c++) {
-        if (currentPiece[r][c] !== 0) {
+        if (currentPiece[r][c]) {
           drawBlock(currentX + c, currentY + r, currentPiece[r][c]);
         }
       }
@@ -261,18 +279,17 @@ function draw() {
 }
 
 /**************************************************************
- * 2. Time-Based Tetris Update (Speed Control)
+ * 2. TETRIS UPDATE (TIME-BASED DROP)
  **************************************************************/
 let lastTime = 0;
 let dropCounter = 0;
-let dropInterval = 1000; // default speed: 1000 ms per row
+let dropInterval = 1000; // default gravity speed
 
 function update(time = 0) {
   const delta = time - lastTime;
   lastTime = time;
   dropCounter += delta;
-  
-  // If it's time to drop the piece
+
   if (dropCounter > dropInterval) {
     if (!collision(0,1)) {
       currentY++;
@@ -283,64 +300,100 @@ function update(time = 0) {
     }
     dropCounter = 0;
   }
-  
   draw();
   requestAnimationFrame(update);
 }
 
-// Start the Tetris loop
 resetBoard();
 requestAnimationFrame(update);
 
-// Listen for speed changes via slider
+/**************************************************************
+ * 3. UI CONTROLS: TETRIS SPEED & MODE
+ **************************************************************/
 const speedRange = document.getElementById('speedRange');
 const speedDisplay = document.getElementById('speedDisplay');
-
 speedRange.addEventListener('input', () => {
   dropInterval = Number(speedRange.value);
   speedDisplay.textContent = `${dropInterval} ms`;
 });
 
+const modeSelect = document.getElementById('modeSelect');
+const repeatSpeedContainer = document.getElementById('repeatSpeedContainer');
+const repeatSpeed = document.getElementById('repeatSpeed');
+const repeatSpeedDisplay = document.getElementById('repeatSpeedDisplay');
+
+// "repeatInterval" is how often we do repeated moves if user stays in zone
+let repeatInterval = Number(repeatSpeed.value);
+
+modeSelect.addEventListener('change', () => {
+  if (modeSelect.value === 'continuous') {
+    repeatSpeedContainer.style.display = 'block';
+  } else {
+    repeatSpeedContainer.style.display = 'none';
+  }
+});
+
+repeatSpeed.addEventListener('input', () => {
+  repeatInterval = Number(repeatSpeed.value);
+  repeatSpeedDisplay.textContent = `${repeatInterval} ms`;
+});
+
 /**************************************************************
- * 3. Handpose Model (TensorFlow.js) and One-Move-Per-Zone Logic
+ * 4. HANDPOSE + ZONE DETECTION
  **************************************************************/
 const video = document.getElementById('video');
+const overlayCanvas = document.getElementById('overlayCanvas');
+const overlayCtx = overlayCanvas.getContext('2d');
 let model = null;
-let lastZone = null; // tracks the last zone we recognized
 
-// Request camera
+// Track the last zone, and also time-based repeating
+let lastZone = null;
+let lastRepeatTime = 0;
+
+// Initialize camera
 async function initCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: 320, height: 240 },
+    audio: false
+  });
   video.srcObject = stream;
   return new Promise((resolve) => {
     video.onloadedmetadata = () => resolve(video);
   });
 }
 
-// Load Handpose model
+// Load handpose
 async function loadModel() {
   model = await handpose.load();
   console.log('Handpose model loaded.');
 }
 
-// We will classify the "zone" of the hand as: left, right, top, bottom, or center
-function getZone(avgX, avgY, vw, vh) {
-  if (avgX < 0.3 * vw)  return 'left';
-  if (avgX > 0.7 * vw)  return 'right';
-  if (avgY < 0.3 * vh)  return 'top';
-  if (avgY > 0.7 * vh)  return 'bottom';
+// We'll define 5 zones: left, right, top, bottom, center
+function getZone(x, y, w, h) {
+  if (x < 0.3 * w)   return 'left';
+  if (x > 0.7 * w)   return 'right';
+  if (y < 0.3 * h)   return 'top';
+  if (y > 0.7 * h)   return 'bottom';
   return 'center';
 }
 
-// Run gesture detection ~10 times/sec
+// Periodic gesture detection
 setInterval(detectGesture, 100);
 
 async function detectGesture() {
   if (!model) return;
-  
+
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  overlayCanvas.width = vw;
+  overlayCanvas.height = vh;
+
+  overlayCtx.clearRect(0, 0, vw, vh);
+  drawZones(overlayCtx, vw, vh);
+
   const predictions = await model.estimateHands(video);
   if (predictions.length > 0) {
-    // Take the first hand’s keypoints
+    // We'll look at the first hand's keypoints
     const keypoints = predictions[0].landmarks;
     let sumX = 0, sumY = 0;
     keypoints.forEach(kp => {
@@ -349,64 +402,141 @@ async function detectGesture() {
     });
     const avgX = sumX / keypoints.length;
     const avgY = sumY / keypoints.length;
-    
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    
-    // Determine the current zone
-    const zone = getZone(avgX, avgY, vw, vh);
-    
-    // Only trigger an action if we've changed zones
-    if (zone !== lastZone) {
-      if (zone === 'left') moveLeft();
-      else if (zone === 'right') moveRight();
-      else if (zone === 'top') rotatePiece();
-      else if (zone === 'bottom') dropPiece();
-      
-      // Update lastZone
-      lastZone = zone;
+
+    // Since video is mirrored visually, we flip X for logic:
+    const flippedX = vw - avgX;
+
+    // Determine zone with flippedX (for correct L/R logic)
+    const zone = getZone(flippedX, avgY, vw, vh);
+
+    highlightZone(overlayCtx, zone, vw, vh);
+
+    // Draw the green circle at the mirrored location so it matches user’s view
+    overlayCtx.fillStyle = 'lime';
+    overlayCtx.beginPath();
+    overlayCtx.arc(vw - avgX, avgY, 5, 0, 2 * Math.PI);
+    overlayCtx.fill();
+
+    // Now handle the two modes:
+    if (modeSelect.value === 'one') {
+      // ONE-MOVE-PER-ZONE
+      if (zone !== lastZone) {
+        // Only do a move if we switched to a new zone
+        triggerMove(zone);
+        lastZone = zone;
+      }
+      // If zone is center, we can re-trigger after we leave center
+      if (zone === 'center') {
+        lastZone = null; // so user can do that zone again
+      }
+    } else {
+      // CONTINUOUS MODE
+      const now = performance.now();
+      // If we changed zone, do an immediate move once
+      if (zone !== lastZone) {
+        triggerMove(zone);
+        lastZone = zone;
+        lastRepeatTime = now; // reset repeat timer
+      } else {
+        // If we stayed in the same zone, check if we should repeat
+        if (zone !== 'center' && zone !== 'bottom') {
+          // Repeat only if not bottom zone
+          if (now - lastRepeatTime >= repeatInterval) {
+            triggerMove(zone);
+            lastRepeatTime = now;
+          }
+        }
+      }
     }
   } else {
-    // If no hand detected, reset zone to null
+    // No hand => reset zone
     lastZone = null;
   }
 }
 
 /**************************************************************
- * 4. Helper Tetris Moves for Gestures
+ * 5. DRAW ZONES + HIGHLIGHT
  **************************************************************/
-function moveLeft() {
-  if (currentPiece && !collision(-1, 0)) {
-    currentX--;
-    draw();
-  }
+function drawZones(ctx, w, h) {
+  ctx.strokeStyle = 'red';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  // vertical lines
+  ctx.moveTo(0.3 * w, 0); ctx.lineTo(0.3 * w, h);
+  ctx.moveTo(0.7 * w, 0); ctx.lineTo(0.7 * w, h);
+  // horizontal lines
+  ctx.moveTo(0, 0.3 * h); ctx.lineTo(w, 0.3 * h);
+  ctx.moveTo(0, 0.7 * h); ctx.lineTo(w, 0.7 * h);
+  ctx.stroke();
 }
 
-function moveRight() {
-  if (currentPiece && !collision(1, 0)) {
-    currentX++;
-    draw();
+function highlightZone(ctx, zone, w, h) {
+  ctx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+  switch (zone) {
+    case 'left':
+      ctx.fillRect(0, 0, 0.3 * w, h);
+      break;
+    case 'right':
+      ctx.fillRect(0.7 * w, 0, 0.3 * w, h);
+      break;
+    case 'top':
+      ctx.fillRect(0, 0, w, 0.3 * h);
+      break;
+    case 'bottom':
+      ctx.fillRect(0, 0.7 * h, w, 0.3 * h);
+      break;
+    case 'center':
+      ctx.fillStyle = 'rgba(255, 255, 0, 0.1)';
+      ctx.fillRect(0.3 * w, 0.3 * h, 0.4 * w, 0.4 * h);
+      break;
   }
-}
-
-function dropPiece() {
-  if (!currentPiece) return;
-  while (!collision(0, 1)) {
-    currentY++;
-  }
-  mergePiece();
-  clearLines();
-  spawnNewPiece();
-  draw();
 }
 
 /**************************************************************
- * 5. Initialization (Camera + Model)
+ * 6. HELPER: TRIGGER TETRIS MOVE
+ **************************************************************/
+function triggerMove(zone) {
+  if (!currentPiece) return;
+  switch (zone) {
+    case 'left':
+      if (!collision(-1, 0)) {
+        currentX--;
+        draw();
+      }
+      break;
+    case 'right':
+      if (!collision(1, 0)) {
+        currentX++;
+        draw();
+      }
+      break;
+    case 'top':
+      rotatePiece();
+      draw();
+      break;
+    case 'bottom':
+      // Always do a single drop, even in continuous mode
+      while (!collision(0, 1)) {
+        currentY++;
+      }
+      mergePiece();
+      clearLines();
+      spawnNewPiece();
+      draw();
+      break;
+    default:
+      // center => no action
+      break;
+  }
+}
+
+/**************************************************************
+ * 7. INIT (Camera + Model)
  **************************************************************/
 (async function(){
   await initCamera();
   await loadModel();
-  console.log('Camera & Model ready. Tetris is running...');
+  console.log('Camera & Model ready. Tetris running...');
 })();
 </script>
 </body>
