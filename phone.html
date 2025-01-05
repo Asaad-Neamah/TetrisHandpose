@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Phone Sender</title>
+</head>
+<body>
+
+<h1>Phone Camera Sender</h1>
+<p id="status">Connecting...</p>
+
+<!-- PeerJS library -->
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
+<script>
+(function() {
+  // Parse ?dest=someID from the URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const destId = urlParams.get('dest');
+  const statusEl = document.getElementById('status');
+
+  if (!destId) {
+    statusEl.textContent = 'Error: No "dest" ID in URL.';
+    return;
+  } else {
+    statusEl.textContent = 'Destination ID: ' + destId;
+  }
+
+  // Create a Peer for the phone (anonymous ID is fine)
+  const phonePeer = new Peer(); 
+  // If self-hosted:
+  // const phonePeer = new Peer({ host: 'localhost', port: 9000, path: '/' });
+
+  phonePeer.on('open', (myId) => {
+    console.log('Phone peer open with ID:', myId);
+    statusEl.textContent += ' | Phone Peer ID: ' + myId;
+
+    // Access phone camera
+    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+      .then(stream => {
+        // Call the desktop's ID
+        const call = phonePeer.call(destId, stream);
+        call.on('error', err => {
+          console.error('Call error:', err);
+          statusEl.textContent = 'Call error: ' + err;
+        });
+      })
+      .catch(err => {
+        console.error('Camera error:', err);
+        statusEl.textContent = 'Camera error: ' + err;
+      });
+  });
+
+  phonePeer.on('error', (err) => {
+    console.error('Peer error:', err);
+    statusEl.textContent = 'Peer error: ' + err;
+  });
+})();
+</script>
+
+</body>
+</html>
