@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Desktop Receiver</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    #myPeerId { color: blue; font-weight: bold; }
+    #qrContainer { margin: 10px 0; }
+    #remoteVideo {
+      width: 320px; height: 240px;
+      background: #000;  /* If no stream yet */
+      transform: scaleX(-1);  /* Mirror visually if you want */
+    }
+  </style>
+</head>
+<body>
+
+<h1>Desktop Receiver</h1>
+
+<div>
+  <label>My Peer ID:</label>
+  <span id="myPeerId"></span>
+</div>
+<div id="qrContainer"></div>
+
+<video id="remoteVideo" autoplay playsinline></video>
+
+<!-- Tetris and TF code can be here -->
+<canvas id="tetris" width="240" height="480"></canvas>
+
+<!-- Scripts -->
+<!-- 1) PeerJS from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
+<!-- 2) qrcode.js (or another QR library) -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+<!-- 3) TensorFlow.js + Handpose (for gestures) -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose@0.0.7/dist/handpose.js"></script>
+
+<script>
+/**************************************************************
+ * 1) Create a Peer (Desktop side)
+ **************************************************************/
+// If using the free PeerJS cloud:
+const peer = new Peer(); 
+// If using your own server: 
+// const peer = new Peer({ host: 'localhost', port: 9000, path: '/' });
+
+peer.on('open', (id) => {
+  // Show the assigned Peer ID
+  document.getElementById('myPeerId').textContent = id;
+
+  // Build phone URL (phone.html?dest=...)
+  const phoneURL = window.location.origin + '/phone.html?dest=' + id;
+  // If you're not serving from the same domain, adjust the URL accordingly.
+
+  // Generate QR code for phone to scan
+  QRCode.toCanvas(document.getElementById('qrContainer'), phoneURL, (err) => {
+    if (err) console.error('QR Error:', err);
+  });
+});
+
+// Listen for calls
+peer.on('call', (call) => {
+  // We answer with no local stream since desktop doesn't need to send video
+  call.answer(null);
+
+  call.on('stream', (remoteStream) => {
+    // Put the incoming stream on remoteVideo
+    const videoElem = document.getElementById('remoteVideo');
+    videoElem.srcObject = remoteStream;
+
+    // Now let's run handpose or any gesture detection
+    initHandpose(videoElem);
+  });
+});
+
+/**************************************************************
+ * 2) Tetris + Handpose Integration (simplified)
+ **************************************************************/
+let model = null;
+
+// For example, a minimal Tetris setup:
+const tetrisCanvas = document.getElementById('tetris');
+const ctx = tetrisCanvas.getContext('2d');
+
+// Stub Tetris logic for demonstration
+function drawTetris() {
+  ctx.clearRect(0, 0, tetrisCanvas.width, tetrisCanvas.height);
+  // ...draw your Tetris game...
+  requestAnimationFrame(drawTetris);
+}
+drawTetris();
+
+// Tetris moves
+function moveLeft() { console.log('Move Left'); }
+function moveRight() { console.log('Move Right'); }
+function rotatePiece() { console.log('Rotate'); }
+function dropPiece() { console.log('Drop'); }
+
+// Initialize handpose model once we get the remote video
+async function initHandpose(videoElem) {
+  model = await handpose.load();
+  console.log('Handpose loaded.');
+  setInterval(() => detectHands(videoElem), 100); // ~10 fps
+}
+
+// Simple zone detection
+function detectHands(videoElem) {
+  if (!model) return;
+  model.estimateHands(videoElem).then(predictions => {
+    if (predictions.length > 0) {
+      const kp = predictions[0].landmarks;
+      let sumX = 0, sumY = 0;
+      kp.forEach(([x, y]) => { sumX += x; sumY += y; });
+      const avgX = sumX / kp.length;
+      const avgY = sumY / kp.length;
+
+      // Mirror logic
+      const vw = videoElem.videoWidth;
+      const vh = videoElem.videoHeight;
+      const flippedX = vw - avgX;  
+
+      // Example zones
+      if (flippedX < 0.3 * vw) {
+        moveLeft();
+      } else if (flippedX > 0.7 * vw) {
+        moveRight();
+      } else if (avgY < 0.3 * vh) {
+        rotatePiece();
+      } else if (avgY > 0.7 * vh) {
+        dropPiece();
+      }
+    }
+  });
+}
+</script>
+
+</body>
+</html>
