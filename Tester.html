@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>QR Test</title>
+</head>
+<body>
+<h1>QR Test</h1>
+
+<div>My Peer ID: <span id="myPeerId"></span></div>
+<canvas id="qrCanvas"></canvas> <!-- We'll draw the QR code here -->
+
+<!-- 1) PeerJS -->
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
+<!-- 2) QRCode library -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+
+<script>
+  // Create a Peer with the free cloud server
+  const peer = new Peer();
+
+  peer.on('open', (id) => {
+    console.log('Peer ID is:', id);
+    document.getElementById('myPeerId').textContent = id;
+    
+    // Build the phone URL
+    const phoneURL = window.location.origin + '/phone.html?dest=' + id;
+    console.log('phoneURL:', phoneURL);
+
+    // Draw the QR code onto <canvas id="qrCanvas">
+    const canvasEl = document.getElementById('qrCanvas');
+    QRCode.toCanvas(canvasEl, phoneURL, (err) => {
+      if (err) console.error('QR error:', err);
+    });
+  });
+</script>
+</body>
+</html>
