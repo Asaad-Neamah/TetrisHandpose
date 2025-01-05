@@ -2,15 +2,34 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Desktop Receiver</title>
+  <title>Tetris Receiver (Desktop)</title>
   <style>
-    body { font-family: sans-serif; margin: 20px; }
-    #myPeerId { color: blue; font-weight: bold; }
-    #qrContainer { margin: 10px 0; }
+    body {
+      font-family: sans-serif;
+      margin: 20px;
+    }
+    #myPeerId {
+      font-weight: bold;
+      color: blue;
+    }
+    /* The <canvas> that will display our QR code */
+    #qrCanvas {
+      margin-top: 10px;
+      border: 1px solid #ccc;
+    }
     #remoteVideo {
-      width: 320px; height: 240px;
-      background: #000;  /* If no stream yet */
-      transform: scaleX(-1);  /* Mirror visually if you want */
+      width: 320px;
+      height: 240px;
+      background: #000; /* If no video yet */
+      transform: scaleX(-1); /* Mirror the feed if you want */
+      margin-top: 10px;
+      display: block;
+    }
+    #tetris {
+      background: #000;
+      border: 1px solid #333;
+      display: block;
+      margin-top: 20px;
     }
   </style>
 </head>
@@ -22,107 +41,113 @@
   <label>My Peer ID:</label>
   <span id="myPeerId"></span>
 </div>
-<div id="qrContainer"></div>
 
+<!-- FIX: Replace <div id="qrContainer"></div> with a canvas -->
+<canvas id="qrCanvas"></canvas>
+
+<!-- The remote video from the phone will appear here -->
 <video id="remoteVideo" autoplay playsinline></video>
 
-<!-- Tetris and TF code can be here -->
+<!-- Tetris canvas (or place anywhere you prefer) -->
 <canvas id="tetris" width="240" height="480"></canvas>
 
-<!-- Scripts -->
-<!-- 1) PeerJS from CDN -->
+<!-- 1) PeerJS -->
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
 <!-- 2) qrcode.js (or another QR library) -->
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
-<!-- 3) TensorFlow.js + Handpose (for gestures) -->
+<!-- 3) TensorFlow.js + Handpose -->
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose@0.0.7/dist/handpose.js"></script>
 
 <script>
 /**************************************************************
- * 1) Create a Peer (Desktop side)
+ * 1) PeerJS Setup (Desktop as Receiver)
  **************************************************************/
-// If using the free PeerJS cloud:
-const peer = new Peer(); 
-// If using your own server: 
+// Option A: Use free PeerJS cloud server:
+const peer = new Peer();
+// Option B (self-hosted): 
 // const peer = new Peer({ host: 'localhost', port: 9000, path: '/' });
 
 peer.on('open', (id) => {
   // Show the assigned Peer ID
   document.getElementById('myPeerId').textContent = id;
 
-  // Build phone URL (phone.html?dest=...)
+  // Build phone URL (adjust to your domain/paths if needed)
   const phoneURL = window.location.origin + '/phone.html?dest=' + id;
-  // If you're not serving from the same domain, adjust the URL accordingly.
+  console.log('Phone URL for QR:', phoneURL);
 
-  // Generate QR code for phone to scan
-  QRCode.toCanvas(document.getElementById('qrContainer'), phoneURL, (err) => {
-    if (err) console.error('QR Error:', err);
+  // Draw the QR code onto <canvas id="qrCanvas">
+  const qrCanvas = document.getElementById('qrCanvas');
+  QRCode.toCanvas(qrCanvas, phoneURL, (err) => {
+    if (err) console.error('QR error:', err);
   });
 });
 
-// Listen for calls
+// Listen for incoming calls (phone -> desktop)
 peer.on('call', (call) => {
-  // We answer with no local stream since desktop doesn't need to send video
+  // Desktop doesn't need to send a stream back, so answer with null
   call.answer(null);
 
   call.on('stream', (remoteStream) => {
-    // Put the incoming stream on remoteVideo
+    // Put the incoming stream on #remoteVideo
     const videoElem = document.getElementById('remoteVideo');
     videoElem.srcObject = remoteStream;
 
-    // Now let's run handpose or any gesture detection
+    // Start handpose once we have remote video
     initHandpose(videoElem);
   });
 });
 
 /**************************************************************
- * 2) Tetris + Handpose Integration (simplified)
+ * 2) Tetris + Handpose Integration (Simplified Example)
  **************************************************************/
 let model = null;
 
-// For example, a minimal Tetris setup:
+// Minimal Tetris placeholders
 const tetrisCanvas = document.getElementById('tetris');
 const ctx = tetrisCanvas.getContext('2d');
 
-// Stub Tetris logic for demonstration
 function drawTetris() {
   ctx.clearRect(0, 0, tetrisCanvas.width, tetrisCanvas.height);
-  // ...draw your Tetris game...
+  // ... draw your Tetris board/pieces here ...
   requestAnimationFrame(drawTetris);
 }
 drawTetris();
 
 // Tetris moves
-function moveLeft() { console.log('Move Left'); }
-function moveRight() { console.log('Move Right'); }
-function rotatePiece() { console.log('Rotate'); }
-function dropPiece() { console.log('Drop'); }
+function moveLeft()  { console.log('Move Left');  /* implement your logic */ }
+function moveRight() { console.log('Move Right'); /* implement your logic */ }
+function rotatePiece(){ console.log('Rotate');    /* implement your logic */ }
+function dropPiece() { console.log('Drop');       /* implement your logic */ }
 
-// Initialize handpose model once we get the remote video
+// Handpose initialization
 async function initHandpose(videoElem) {
   model = await handpose.load();
-  console.log('Handpose loaded.');
-  setInterval(() => detectHands(videoElem), 100); // ~10 fps
+  console.log('Handpose model loaded.');
+
+  // Run detection ~10 times/sec
+  setInterval(() => detectHands(videoElem), 100);
 }
 
-// Simple zone detection
 function detectHands(videoElem) {
   if (!model) return;
   model.estimateHands(videoElem).then(predictions => {
     if (predictions.length > 0) {
       const kp = predictions[0].landmarks;
       let sumX = 0, sumY = 0;
-      kp.forEach(([x, y]) => { sumX += x; sumY += y; });
+      kp.forEach(([x, y]) => {
+        sumX += x;
+        sumY += y;
+      });
       const avgX = sumX / kp.length;
       const avgY = sumY / kp.length;
 
-      // Mirror logic
+      // Because we visually mirrored the video, we flip X
       const vw = videoElem.videoWidth;
       const vh = videoElem.videoHeight;
-      const flippedX = vw - avgX;  
+      const flippedX = vw - avgX;
 
-      // Example zones
+      // Simple "4-zone" logic
       if (flippedX < 0.3 * vw) {
         moveLeft();
       } else if (flippedX > 0.7 * vw) {
