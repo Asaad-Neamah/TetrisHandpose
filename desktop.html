@@ -85,16 +85,20 @@ peer.on('open', (id) => {
 
 // Listen for incoming calls (phone -> desktop)
 peer.on('call', (call) => {
-  // Desktop doesn't need to send a stream back, so answer with null
   call.answer(null);
 
   call.on('stream', (remoteStream) => {
-    // Put the incoming stream on #remoteVideo
     const videoElem = document.getElementById('remoteVideo');
     videoElem.srcObject = remoteStream;
 
-    // Start handpose once we have remote video
-    initHandpose(videoElem);
+    // Ensure video is loaded before initializing handpose
+    videoElem.addEventListener('loadedmetadata', () => {
+      videoElem.width = videoElem.videoWidth;
+      videoElem.height = videoElem.videoHeight;
+
+      // Start handpose once video metadata is loaded
+      initHandpose(videoElem);
+    });
   });
 });
 
@@ -126,7 +130,11 @@ async function initHandpose(videoElem) {
   console.log('Handpose model loaded.');
 
   // Run detection ~10 times/sec
-  setInterval(() => detectHands(videoElem), 100);
+  setInterval(() => {
+    if (videoElem.videoWidth > 0 && videoElem.videoHeight > 0) {
+      detectHands(videoElem);
+    }
+  }, 100);
 }
 
 function detectHands(videoElem) {
