@@ -73,7 +73,7 @@ peer.on('open', (id) => {
   document.getElementById('myPeerId').textContent = id;
 
   // Build phone URL (adjust to your domain/paths if needed)
-  const phoneURL = window.location.origin + '/phone.html?dest=' + id;
+  const phoneURL = window.location.origin + '/TetrisHandpose/phone.html?dest=' + id;
   console.log('Phone URL for QR:', phoneURL);
 
   // Draw the QR code onto <canvas id="qrCanvas">
