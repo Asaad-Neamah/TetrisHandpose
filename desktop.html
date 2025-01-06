@@ -91,17 +91,34 @@ peer.on('call', (call) => {
     const videoElem = document.getElementById('remoteVideo');
     videoElem.srcObject = remoteStream;
 
-    // Ensure video is loaded before initializing handpose
     videoElem.addEventListener('loadedmetadata', () => {
       videoElem.width = videoElem.videoWidth;
       videoElem.height = videoElem.videoHeight;
 
-      // Start handpose once video metadata is loaded
-      initHandpose(videoElem);
+      // Initialize Tetris and Handpose once video is loaded
+      initializeTetrisAndHandpose(videoElem);
     });
   });
 });
 
+  async function initializeTetrisAndHandpose(videoElem) {
+  try {
+    await initHandpose(videoElem);
+    initTetrisCanvas();
+    console.log('Initialization complete.');
+  } catch (error) {
+    console.error('Initialization error:', error);
+  }
+}
+
+function initTetrisCanvas() {
+  const tetrisCanvas = document.getElementById('tetris');
+  const ctx = tetrisCanvas.getContext('2d');
+  
+  // Example: Draw Tetris grid or game elements
+  ctx.fillStyle = 'blue';
+  ctx.fillRect(10, 10, 50, 50);
+}
 /**************************************************************
  * 2) Tetris + Handpose Integration (Simplified Example)
  **************************************************************/
@@ -136,6 +153,7 @@ async function initHandpose(videoElem) {
     }
   }, 100);
 }
+
 
 function detectHands(videoElem) {
   if (!model) return;
